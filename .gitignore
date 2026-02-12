@@ -16,5 +16,6 @@ env/
 # Environment variables
 .env
 
-# Uploads
-uploads/
+# Uploads (papkani saqlash, fayllarni ignore qilish)
+uploads/*
+!uploads/.gitkeep
