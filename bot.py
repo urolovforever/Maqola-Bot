@@ -1,6 +1,9 @@
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+# Toshkent vaqt zonasi (UTC+5)
+TASHKENT_TZ = timezone(timedelta(hours=5))
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
@@ -91,7 +94,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return FILE
 
     # Generate unique file name
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(TASHKENT_TZ).strftime("%Y%m%d_%H%M%S")
     user_name = context.user_data.get("name", "nomalum")
     safe_name = user_name.replace(" ", "_")
     _, ext = os.path.splitext(file_name)
