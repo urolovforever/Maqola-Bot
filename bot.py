@@ -27,6 +27,7 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOADS_DIR, exist_ok=True)
+logger.info("Uploads papka: %s", UPLOADS_DIR)
 
 # Function to reset the conversation
 async def reset_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -97,8 +98,16 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     unique_name = f"{timestamp}_{safe_name}{ext}"
 
     file_path = os.path.join(UPLOADS_DIR, unique_name)
-    file = await document.get_file()
-    await file.download_to_drive(file_path)
+    logger.info("Fayl saqlanmoqda: %s", file_path)
+
+    try:
+        tg_file = await document.get_file()
+        await tg_file.download_to_drive(file_path)
+        logger.info("Fayl muvaffaqiyatli saqlandi: %s", file_path)
+    except Exception as e:
+        logger.error("Faylni saqlashda xatolik: %s", e)
+        await update.message.reply_text("Faylni saqlashda xatolik yuz berdi. Qaytadan urinib ko'ring.")
+        return FILE
 
     user_phone = context.user_data.get("phone", "Noma'lum")
 
