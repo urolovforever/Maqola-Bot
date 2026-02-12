@@ -1,4 +1,7 @@
 import os
+import logging
+import sqlite3
+from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
@@ -6,26 +9,56 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+
+# Logging setup
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
 
 # Define conversation states
 NAME, PHONE, FILE = range(3)
 
+# Max file size: 10 MB
+MAX_FILE_SIZE = 10 * 1024 * 1024
+
 # Ensure the uploads directory exists
 os.makedirs("uploads", exist_ok=True)
+
+# Database setup
+def init_db():
+    conn = sqlite3.connect("submissions.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            user_name TEXT,
+            phone TEXT,
+            file_name TEXT,
+            saved_as TEXT,
+            submitted_at TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
 
 # Function to reset the conversation
 async def reset_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Helper function to reset the conversation and start fresh."""
-    user_first_name = update.message.from_user.first_name  # Get the user's first name
+    user_first_name = update.message.from_user.first_name
     await update.message.reply_text(
-        f"👋 Assalomu alaykum, {user_first_name}!\n\n"
-        "🎓 O'zbekiston Respublikasi Bank-moliya akademiyasining konferensiyasiga xush kelibsiz!\n\n"
-        "📄 Iltimos, axborot xatida belgilangan talablarga javob beruvchi tezis faylini mos bo'lgan "
-        "seksiya (ilmiy yo'nalish) raqam va muallif familyasini ko'rsatgan holda nomlab jo'natishingizni so'raymiz.\n"
-        "(masalan: 2.Abdullayev.doc).\n\n"
-        "🙏 Rahmat!"
+        f"Assalomu alaykum, {user_first_name}!\n\n"
+        "Ilmiy ishlar departamentiga maqola yuborish botiga xush kelibsiz!\n\n"
+        "Iltimos, maqolangizni .doc, .docx yoki .pdf formatida yuboring.\n"
+        "Fayl nomida muallif familyasini ko'rsating (masalan: Abdullayev_maqola.docx).\n\n"
+        "Rahmat!"
     )
-    await update.message.reply_text("📝 Iltimos, ismingizni yuboring:")
+    await update.message.reply_text("Iltimos, ismingizni yuboring:")
     return NAME
 
 # Start command handler
@@ -39,9 +72,9 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.message.text
     context.user_data["name"] = user_name  # Store the name in user_data
     await update.message.reply_text(
-        f"🙏 Rahmat, {user_name}! Iltimos, telefon raqamingizni yuboring:",
+        f"Rahmat, {user_name}! Iltimos, telefon raqamingizni yuboring:",
         reply_markup=ReplyKeyboardMarkup(
-            [[{"text": "📱 Raqamni yuborish", "request_contact": True}]],
+            [[{"text": "Raqamni yuborish", "request_contact": True}]],
             one_time_keyboard=True,
             resize_keyboard=True
         )
@@ -55,7 +88,7 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Remove the custom keyboard
     await update.message.reply_text(
-        f"✅ Raqamingiz qabul qilindi: {phone_number}. Endi iltimos, tezis faylini yuboring.",
+        f"Raqamingiz qabul qilindi: {phone_number}. Endi iltimos, maqola faylini yuboring.",
         reply_markup=ReplyKeyboardRemove()  # Remove the keyboard
     )
     return FILE
@@ -65,47 +98,68 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
     file_name = document.file_name
 
-    # Validate file type (only .doc, .docx, or .pdf allowed)
+    # Validate file type
     if not file_name.lower().endswith((".doc", ".docx", ".pdf")):
-        await update.message.reply_text("❌ Iltimos, faqat .doc, .docx yoki .pdf formatidagi fayllarni yuboring.")
+        await update.message.reply_text("Iltimos, faqat .doc, .docx yoki .pdf formatidagi fayllarni yuboring.")
         return FILE
 
-    # Save the file with a proper path
-    file_path = os.path.join("uploads", file_name)
+    # Validate file size
+    if document.file_size > MAX_FILE_SIZE:
+        await update.message.reply_text("Fayl hajmi 10 MB dan oshmasligi kerak. Iltimos, kichikroq fayl yuboring.")
+        return FILE
+
+    # Generate unique file name
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    user_name = context.user_data.get("name", "nomalum")
+    safe_name = user_name.replace(" ", "_")
+    _, ext = os.path.splitext(file_name)
+    unique_name = f"{timestamp}_{safe_name}{ext}"
+
+    file_path = os.path.join("uploads", unique_name)
     file = await document.get_file()
     await file.download_to_drive(file_path)
 
-    # Notify the user
-    await update.message.reply_text(f"✅ Fayl qabul qilindi: {file_name}. Rahmat! 🙏")
-
-    # Send user details and file to admin
-    admin_chat_id = "5407162492"  # Replace with your admin's chat ID
-    user_name = context.user_data.get("name", "Noma'lum")
+    # Save to database
     user_phone = context.user_data.get("phone", "Noma'lum")
+    user_id = update.message.from_user.id
+    conn = sqlite3.connect("submissions.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO submissions (user_id, user_name, phone, file_name, saved_as, submitted_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, user_name, user_phone, file_name, unique_name, datetime.now().isoformat()),
+    )
+    conn.commit()
+    conn.close()
 
+    logger.info("Yangi maqola qabul qilindi: %s -> %s", file_name, unique_name)
+
+    # Notify the user
+    await update.message.reply_text(f"Fayl qabul qilindi: {file_name}. Rahmat!")
+
+    # Send to admin
     await context.bot.send_document(
-        chat_id=admin_chat_id,
+        chat_id=ADMIN_CHAT_ID,
         document=document.file_id,
-        caption=f"📤 Yangi fayl:\n"
-               f"📄 Fayl nomi: {file_name}\n"
-               f"👤 Foydalanuvchi ismi: {user_name}\n"
-               f"📞 Telefon raqami: {user_phone}"
+        caption=f"Yangi maqola:\n"
+               f"Fayl nomi: {file_name}\n"
+               f"Foydalanuvchi: {user_name}\n"
+               f"Telefon: {user_phone}",
     )
 
     # Clear user data
     context.user_data.clear()
-    await update.message.reply_text("🔄 Yangi fayl yuborish uchun /start ni bosing.")
+    await update.message.reply_text("Yangi maqola yuborish uchun /start ni bosing.")
     return ConversationHandler.END
 
 # Cancel handler
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Jarayon bekor qilindi.", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("Jarayon bekor qilindi.", reply_markup=ReplyKeyboardRemove())
     context.user_data.clear()
     return ConversationHandler.END
 
 # Error handler
 async def error(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print(f"Update {update} caused error {context.error}")
+    logger.error("Update %s caused error %s", update, context.error)
 
 # Main function to run the bot
 if __name__ == "__main__":
@@ -127,5 +181,5 @@ if __name__ == "__main__":
     app.add_error_handler(error)
 
     # Start the bot
-    print("Bot is running...")
+    logger.info("Bot ishga tushdi...")
     app.run_polling()
