@@ -23,8 +23,10 @@ NAME, PHONE, FILE = range(3)
 # Max file size: 10 MB
 MAX_FILE_SIZE = 10 * 1024 * 1024
 
-# Ensure the uploads directory exists
-os.makedirs("uploads", exist_ok=True)
+# Uploads directory (absolute path based on script location)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 # Function to reset the conversation
 async def reset_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,7 +96,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, ext = os.path.splitext(file_name)
     unique_name = f"{timestamp}_{safe_name}{ext}"
 
-    file_path = os.path.join("uploads", unique_name)
+    file_path = os.path.join(UPLOADS_DIR, unique_name)
     file = await document.get_file()
     await file.download_to_drive(file_path)
 
