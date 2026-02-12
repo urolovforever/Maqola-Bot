@@ -1,6 +1,5 @@
 import os
 import logging
-import sqlite3
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
@@ -26,26 +25,6 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 
 # Ensure the uploads directory exists
 os.makedirs("uploads", exist_ok=True)
-
-# Database setup
-def init_db():
-    conn = sqlite3.connect("submissions.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS submissions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            user_name TEXT,
-            phone TEXT,
-            file_name TEXT,
-            saved_as TEXT,
-            submitted_at TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-init_db()
 
 # Function to reset the conversation
 async def reset_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -119,17 +98,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file = await document.get_file()
     await file.download_to_drive(file_path)
 
-    # Save to database
     user_phone = context.user_data.get("phone", "Noma'lum")
-    user_id = update.message.from_user.id
-    conn = sqlite3.connect("submissions.db")
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO submissions (user_id, user_name, phone, file_name, saved_as, submitted_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (user_id, user_name, user_phone, file_name, unique_name, datetime.now().isoformat()),
-    )
-    conn.commit()
-    conn.close()
 
     logger.info("Yangi maqola qabul qilindi: %s -> %s", file_name, unique_name)
 
